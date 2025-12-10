@@ -1,16 +1,30 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { BotConfig, MarketData, MarketType, StrategyType, TradeSignal, RiskProfile, AIModel } from './types';
+import { BotConfig, MarketData, MarketType, StrategyType, TradeSignal, RiskProfile, AIModel, Asset } from './types';
 import StrategyConfig from './components/StrategyConfig';
 import MarketChart from './components/MarketChart';
 import CodeViewer from './components/CodeViewer';
+import AIAssistant from './components/AIAssistant';
 import { analyzeMarket, generateBacktestCode, generateBotCode } from './services/geminiService';
-import { Activity, Bot, BrainCircuit, Code, Play, RefreshCw, ShieldCheck, Zap, Server } from 'lucide-react';
+import { Activity, Bot, BrainCircuit, Code, Play, RefreshCw, ShieldCheck, Zap, Server, Lock, Wallet, ArrowRightLeft, QrCode, Shield, X, Maximize2, Copy, TrendingUp, Search, Briefcase, LayoutDashboard, ChevronRight, ArrowUpRight, ArrowDownRight, User } from 'lucide-react';
 
-const INITIAL_PRICE = 45000;
+const INITIAL_CAPITAL = 50000;
+const DEPOSIT_ADDRESS = "0x71C7656EC7ab88b098defB751B7401B5f6d8976F";
+
+const MOCK_ASSETS: Asset[] = [
+  { id: '1', symbol: 'NIFTY 50', name: 'Nifty 50 Index', price: 22150.50, change: 0.45, type: 'INDEX', icon: '🇮🇳' },
+  { id: '2', symbol: 'BTC', name: 'Bitcoin', price: 64230.10, change: -1.2, type: 'CRYPTO', icon: '₿' },
+  { id: '3', symbol: 'ETH', name: 'Ethereum', price: 3450.80, change: 0.8, type: 'CRYPTO', icon: 'Ξ' },
+  { id: '4', symbol: 'RELIANCE', name: 'Reliance Ind.', price: 2950.00, change: 1.5, type: 'STOCK', icon: 'R' },
+  { id: '5', symbol: 'TATA', name: 'Tata Motors', price: 980.20, change: -0.5, type: 'STOCK', icon: 'T' },
+  { id: '6', symbol: 'GOLD', name: 'Gold (XAU)', price: 2150.40, change: 0.1, type: 'INDEX', icon: '🥇' },
+];
 
 function App() {
   // --- State ---
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'architecture'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'explore' | 'investments' | 'algo'>('explore');
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [showQrModal, setShowQrModal] = useState(false);
   
   // Configuration State
   const [config, setConfig] = useState<BotConfig>({
@@ -24,12 +38,15 @@ function App() {
     useTrailingStop: true,
     autoRebalance: true,
     safeMode: true,
-    leverage: 1
+    leverage: 1,
+    useSecureWallet: true,
+    vaultReservePercent: 80,
+    strictNoLossMode: false
   });
 
   // Data State
   const [marketData, setMarketData] = useState<MarketData[]>([]);
-  const [currentPrice, setCurrentPrice] = useState(INITIAL_PRICE);
+  const [currentPrice, setCurrentPrice] = useState(64000); // Default BTCish
   const [signal, setSignal] = useState<TradeSignal | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
@@ -62,10 +79,11 @@ function App() {
     };
   }, []);
 
-  // Initialize Data
+  // Initialize Data when asset changes
   useEffect(() => {
+    const initialPrice = selectedAsset ? selectedAsset.price : 64000;
     const initialData: MarketData[] = [];
-    let price = INITIAL_PRICE;
+    let price = initialPrice;
     for (let i = 0; i < 50; i++) {
       const candle = generateCandle(price);
       initialData.push(candle);
@@ -73,7 +91,8 @@ function App() {
     }
     setMarketData(initialData);
     setCurrentPrice(price);
-  }, [generateCandle]);
+    setSignal(null); // Reset signal on asset change
+  }, [generateCandle, selectedAsset]);
 
   // Live Simulation Loop
   useEffect(() => {
@@ -110,302 +129,375 @@ function App() {
     setIsGeneratingCode(false);
   };
 
-  // --- UI Components ---
+  const copyAddress = () => {
+    navigator.clipboard.writeText(DEPOSIT_ADDRESS);
+    alert("Wallet Address Copied!");
+  };
+
+  // --- Calculations for Wallet UI ---
+  const vaultAmount = config.useSecureWallet ? (INITIAL_CAPITAL * config.vaultReservePercent) / 100 : 0;
+  const tradingAmount = INITIAL_CAPITAL - vaultAmount;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(DEPOSIT_ADDRESS)}&bgcolor=ffffff`;
+
+  // --- Views ---
+
+  const renderExplore = () => (
+    <div className="space-y-6">
+       {/* Indices / Top Cards */}
+       <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+          {MOCK_ASSETS.slice(0, 3).map(asset => (
+             <div key={asset.id} onClick={() => setSelectedAsset(asset)} className="min-w-[200px] bg-slate-800 p-4 rounded-xl border border-slate-700 cursor-pointer hover:border-indigo-500 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                   <div className="bg-slate-700 w-8 h-8 rounded-full flex items-center justify-center text-lg">{asset.icon}</div>
+                   <span className={`text-xs font-bold px-2 py-1 rounded ${asset.change >= 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                      {asset.change > 0 ? '+' : ''}{asset.change}%
+                   </span>
+                </div>
+                <div className="font-bold text-white text-lg">{asset.symbol}</div>
+                <div className="text-slate-400 text-sm">${asset.price.toLocaleString()}</div>
+             </div>
+          ))}
+       </div>
+
+       {/* List View */}
+       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+          <div className="p-4 border-b border-slate-700">
+             <h2 className="text-white font-bold flex items-center gap-2"><TrendingUp size={18} className="text-indigo-400"/> Market Movers</h2>
+          </div>
+          <div>
+             {MOCK_ASSETS.map(asset => (
+                <div 
+                  key={asset.id} 
+                  onClick={() => setSelectedAsset(asset)}
+                  className="flex items-center justify-between p-4 border-b border-slate-700/50 hover:bg-slate-700/30 cursor-pointer transition-colors"
+                >
+                   <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-slate-700 rounded-lg flex items-center justify-center text-xl shadow-lg">{asset.icon}</div>
+                      <div>
+                         <div className="font-bold text-white">{asset.name}</div>
+                         <div className="text-xs text-slate-400">{asset.type}</div>
+                      </div>
+                   </div>
+                   <div className="text-right">
+                      <div className="font-mono text-white font-medium">${asset.price.toLocaleString()}</div>
+                      <div className={`text-xs font-bold ${asset.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                         {asset.change > 0 ? '+' : ''}{asset.change}%
+                      </div>
+                   </div>
+                </div>
+             ))}
+          </div>
+       </div>
+    </div>
+  );
+
+  const renderAssetDetail = () => {
+    if (!selectedAsset) return null;
+    return (
+      <div className="space-y-6">
+         <button onClick={() => {setSelectedAsset(null); setSignal(null);}} className="text-slate-400 hover:text-white flex items-center gap-1 text-sm mb-2">
+            &larr; Back to Explore
+         </button>
+
+         {/* Header */}
+         <div className="flex justify-between items-start">
+             <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-slate-700 rounded-xl flex items-center justify-center text-2xl shadow-lg">{selectedAsset.icon}</div>
+                <div>
+                    <h1 className="text-2xl font-bold text-white">{selectedAsset.name}</h1>
+                    <div className="flex items-center gap-2">
+                        <span className="text-2xl font-mono text-indigo-300">${currentPrice.toFixed(2)}</span>
+                        <span className={`text-sm font-bold px-2 py-0.5 rounded ${marketData.length > 1 && currentPrice > marketData[marketData.length-2].close ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                           LIVE
+                        </span>
+                    </div>
+                </div>
+             </div>
+             <div className="flex gap-2">
+                <button className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-bold shadow-lg shadow-indigo-500/20">BUY</button>
+                <button className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg font-bold">SELL</button>
+             </div>
+         </div>
+
+         {/* Chart & AI Analysis Grid */}
+         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-4">
+               <MarketChart data={marketData} height={400} />
+               
+               {/* Quick SIP / Auto Invest */}
+               <div className="bg-indigo-900/20 border border-indigo-500/30 rounded-lg p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                     <div className="bg-indigo-500/20 p-2 rounded-full text-indigo-400"><Bot size={20}/></div>
+                     <div>
+                        <div className="font-bold text-white text-sm">Start AI SIP</div>
+                        <div className="text-xs text-indigo-200">Auto-invest $500 monthly in {selectedAsset.symbol}</div>
+                     </div>
+                  </div>
+                  <button className="text-indigo-400 font-bold text-sm hover:text-white">Configure &gt;</button>
+               </div>
+            </div>
+
+            <div className="lg:col-span-1 space-y-4">
+               {/* AI Analyst Card */}
+               <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                     <h3 className="font-bold text-white flex items-center gap-2"><BrainCircuit size={18} className="text-purple-400"/> AI Analyst</h3>
+                     <button 
+                        onClick={handleAnalyze} 
+                        disabled={isAnalyzing}
+                        className="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-white flex items-center gap-1"
+                     >
+                        {isAnalyzing ? <RefreshCw size={12} className="animate-spin"/> : <Zap size={12}/>} Scan
+                     </button>
+                  </div>
+                  
+                  {signal ? (
+                     <div className="space-y-4 animate-in fade-in">
+                        <div className="flex justify-between items-center">
+                           <span className="text-slate-400 text-xs uppercase font-bold">Signal</span>
+                           <span className={`text-lg font-black ${signal.type === 'BUY' ? 'text-green-400' : signal.type === 'SELL' ? 'text-red-400' : 'text-yellow-400'}`}>
+                              {signal.type}
+                           </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                           <span className="text-slate-400 text-xs uppercase font-bold">Confidence</span>
+                           <div className="w-24 bg-slate-700 h-2 rounded-full overflow-hidden">
+                              <div className="bg-indigo-500 h-full" style={{width: `${signal.confidence}%`}}></div>
+                           </div>
+                        </div>
+                        <div className="p-3 bg-slate-900 rounded text-xs text-slate-300 border border-slate-700 leading-relaxed">
+                           {signal.reasoning}
+                        </div>
+                        <div className="flex gap-2">
+                           <div className="flex-1 bg-slate-900 p-2 rounded text-center">
+                              <div className="text-[10px] text-slate-500">REGIME</div>
+                              <div className="text-xs font-bold text-white">{signal.marketRegime}</div>
+                           </div>
+                           <div className="flex-1 bg-slate-900 p-2 rounded text-center">
+                              <div className="text-[10px] text-slate-500">SENTIMENT</div>
+                              <div className="text-xs font-bold text-white">{signal.sentiment}</div>
+                           </div>
+                        </div>
+                     </div>
+                  ) : (
+                     <div className="text-center py-8 text-slate-500 text-sm">
+                        Tap "Scan" to analyze market conditions.
+                     </div>
+                  )}
+               </div>
+            </div>
+         </div>
+      </div>
+    );
+  };
+
+  const renderInvestments = () => (
+    <div className="space-y-6">
+       {/* Portfolio Summary Card */}
+       <div className="bg-gradient-to-r from-indigo-900 to-slate-900 rounded-2xl p-6 border border-indigo-500/30 relative overflow-hidden shadow-2xl">
+          <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+             <div>
+                <div className="text-indigo-300 text-sm font-medium mb-1 flex items-center gap-2"><Briefcase size={16}/> Total Portfolio Value</div>
+                <div className="text-4xl font-bold text-white tracking-tight">${INITIAL_CAPITAL.toLocaleString()}</div>
+                <div className="text-emerald-400 text-sm font-bold mt-1 flex items-center gap-1"><TrendingUp size={14}/> +$1,240.50 (2.4%)</div>
+             </div>
+             
+             <div className="flex gap-3">
+                <button onClick={() => setShowQrModal(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg flex items-center gap-2">
+                   <ArrowDownRight size={16}/> Deposit
+                </button>
+                <button className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2">
+                   <ArrowUpRight size={16}/> Withdraw
+                </button>
+             </div>
+          </div>
+          {/* Decorative background blob */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+       </div>
+
+       {/* Wallet Split */}
+       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Secure Vault */}
+          <div className={`bg-slate-800 rounded-xl p-5 border ${config.useSecureWallet ? 'border-indigo-500/50' : 'border-slate-700'}`}>
+             <div className="flex justify-between items-center mb-4">
+                <h3 className="text-white font-bold flex items-center gap-2"><Lock size={18} className="text-indigo-400"/> Secure Vault</h3>
+                {config.useSecureWallet && <span className="bg-indigo-500/20 text-indigo-300 text-xs px-2 py-1 rounded font-bold">LOCKED</span>}
+             </div>
+             <div className="text-2xl font-mono text-white mb-2">${vaultAmount.toLocaleString()}</div>
+             <div className="text-slate-400 text-xs leading-relaxed">
+                {config.useSecureWallet 
+                  ? `${config.vaultReservePercent}% of your capital is cryptographically locked and isolated from trading risks.`
+                  : "Vault is currently disabled. Enable it in Algo Studio."}
+             </div>
+          </div>
+
+          {/* Active Trading */}
+          <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
+             <div className="flex justify-between items-center mb-4">
+                <h3 className="text-white font-bold flex items-center gap-2"><Activity size={18} className="text-emerald-400"/> Trading Wallet</h3>
+                <span className="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-1 rounded font-bold">ACTIVE</span>
+             </div>
+             <div className="text-2xl font-mono text-white mb-2">${tradingAmount.toLocaleString()}</div>
+             <div className="text-slate-400 text-xs leading-relaxed">
+                Capital available for AI Auto-Trade strategies and manual execution.
+             </div>
+          </div>
+       </div>
+
+       {/* Current Holdings List (Mock) */}
+       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+          <div className="p-4 border-b border-slate-700">
+             <h3 className="font-bold text-white">Current Holdings</h3>
+          </div>
+          <div>
+             <div className="p-4 flex items-center justify-between border-b border-slate-700/50">
+                <div className="flex items-center gap-3">
+                   <div className="w-8 h-8 rounded bg-orange-500/20 text-orange-400 flex items-center justify-center font-bold">₿</div>
+                   <div>
+                      <div className="text-white font-bold text-sm">Bitcoin</div>
+                      <div className="text-slate-500 text-xs">0.45 BTC</div>
+                   </div>
+                </div>
+                <div className="text-right">
+                   <div className="text-white font-bold text-sm">$28,903.50</div>
+                   <div className="text-green-400 text-xs">+12.4%</div>
+                </div>
+             </div>
+             <div className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                   <div className="w-8 h-8 rounded bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold">R</div>
+                   <div>
+                      <div className="text-white font-bold text-sm">Reliance Ind.</div>
+                      <div className="text-slate-500 text-xs">50 Qty</div>
+                   </div>
+                </div>
+                <div className="text-right">
+                   <div className="text-white font-bold text-sm">$1,475.00</div>
+                   <div className="text-red-400 text-xs">-1.2%</div>
+                </div>
+             </div>
+          </div>
+       </div>
+    </div>
+  );
+
+  const renderAlgoStudio = () => (
+     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-4 space-y-6">
+           <StrategyConfig config={config} setConfig={setConfig} />
+        </div>
+        <div className="lg:col-span-8 space-y-6">
+           <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
+              <div className="flex justify-between items-center mb-6">
+                 <div>
+                    <h2 className="text-lg font-bold text-white">System Architect</h2>
+                    <p className="text-xs text-slate-400">Generate Python source code for your custom bot.</p>
+                 </div>
+                 <button 
+                   onClick={handleGenerateCode}
+                   disabled={isGeneratingCode}
+                   className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 disabled:opacity-50"
+                 >
+                    {isGeneratingCode ? <RefreshCw className="animate-spin" size={16}/> : <Code size={16}/>} Generate
+                 </button>
+              </div>
+              <div className="h-[600px]">
+                 <CodeViewer 
+                   title="algo_engine.py" 
+                   code={generatedBotCode} 
+                   isLoading={isGeneratingCode} 
+                 />
+              </div>
+           </div>
+        </div>
+     </div>
+  );
+
+  // --- Main Render ---
   
   return (
     <div className="min-h-screen flex flex-col font-sans bg-slate-950 text-slate-200">
-      {/* Header */}
-      <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow-md">
-        <div className="flex items-center space-x-3">
-          <div className="bg-indigo-600 p-2 rounded-lg shadow-indigo-500/20 shadow-lg">
-            <Bot size={24} className="text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-white tracking-tight">QuantAI <span className="text-indigo-400">Pro</span></h1>
-            <p className="text-xs text-slate-400">AI Investment System Architect</p>
-          </div>
+      
+      {/* QR Modal */}
+      {showQrModal && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowQrModal(false)}>
+            <div className="bg-slate-900 border border-indigo-500 rounded-2xl p-6 max-w-sm w-full shadow-2xl transform scale-100 transition-all" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-white font-bold flex items-center gap-2"><Wallet size={18}/> Deposit to Secure Vault</h3>
+                    <button onClick={() => setShowQrModal(false)} className="text-slate-400 hover:text-white"><X size={20}/></button>
+                </div>
+                <div className="bg-white p-4 rounded-xl flex justify-center mb-4">
+                    <img src={qrUrl} alt="Deposit QR" className="w-48 h-48 object-contain" />
+                </div>
+                <div className="space-y-2">
+                    <label className="text-xs text-slate-500 uppercase font-bold">Wallet Address (ERC-20)</label>
+                    <div className="flex items-center space-x-2 bg-slate-950 p-2 rounded border border-slate-800">
+                        <code className="text-xs text-indigo-300 font-mono flex-1 break-all">{DEPOSIT_ADDRESS}</code>
+                        <button onClick={copyAddress} className="text-slate-400 hover:text-white"><Copy size={14}/></button>
+                    </div>
+                </div>
+                <div className="mt-4 flex items-center justify-center space-x-2 text-emerald-400 bg-emerald-900/20 p-2 rounded">
+                    <ShieldCheck size={16} />
+                    <span className="text-xs font-bold">AES-256 Encrypted Storage</span>
+                </div>
+            </div>
         </div>
-        
-        <nav className="flex space-x-1 bg-slate-800/50 p-1 rounded-lg border border-slate-700/50">
-          <button 
-            onClick={() => setActiveTab('dashboard')}
-            className={`px-4 py-2 rounded text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}
-          >
-            Mission Control
-          </button>
-          <button 
-            onClick={() => setActiveTab('architecture')}
-            className={`px-4 py-2 rounded text-sm font-medium transition-all ${activeTab === 'architecture' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}`}
-          >
-            System Architecture
-          </button>
-        </nav>
+      )}
+
+      {/* Header / Navbar */}
+      <header className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div className="flex items-center gap-8">
+               <div className="flex items-center gap-2 text-white font-black text-xl tracking-tight">
+                  <div className="bg-indigo-600 p-1.5 rounded-lg"><Bot size={20}/></div>
+                  InvestAI
+               </div>
+               
+               {/* Desktop Nav */}
+               <nav className="hidden md:flex items-center gap-1">
+                  <button 
+                     onClick={() => {setActiveTab('explore'); setSelectedAsset(null);}} 
+                     className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'explore' ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}
+                  >
+                     Explore
+                  </button>
+                  <button 
+                     onClick={() => setActiveTab('investments')} 
+                     className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'investments' ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}
+                  >
+                     Investments
+                  </button>
+                  <button 
+                     onClick={() => setActiveTab('algo')} 
+                     className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'algo' ? 'text-indigo-400 bg-indigo-900/20 border border-indigo-500/30' : 'text-slate-400 hover:text-white'}`}
+                  >
+                     Algo Studio
+                  </button>
+               </nav>
+            </div>
+
+            <div className="flex items-center gap-4">
+               {/* Search Bar */}
+               <div className="hidden md:flex items-center bg-slate-800 border border-slate-700 rounded-full px-4 py-1.5 w-64 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 transition-all">
+                  <Search size={14} className="text-slate-500 mr-2"/>
+                  <input type="text" placeholder="Search stocks, crypto..." className="bg-transparent border-none focus:outline-none text-sm text-white w-full placeholder-slate-500" />
+               </div>
+               <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold border-2 border-slate-800 cursor-pointer">
+                  <User size={14}/>
+               </div>
+            </div>
+        </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 p-6 overflow-y-auto">
-        <div className="max-w-[1600px] mx-auto">
-          
-          {/* TAB: DASHBOARD */}
-          {activeTab === 'dashboard' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              
-              {/* Left Column: Config (3 cols) */}
-              <div className="lg:col-span-3 space-y-6">
-                <StrategyConfig config={config} setConfig={setConfig} />
-                
-                {/* Simulated Portfolio Stats */}
-                <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
-                  <h3 className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-4">Portfolio (Simulated)</h3>
-                  <div className="space-y-4">
-                     <div>
-                        <div className="flex justify-between text-sm mb-1">
-                            <span className="text-slate-400">Total Balance</span>
-                            <span className="text-emerald-400 font-mono font-bold">+$12,450.20</span>
-                        </div>
-                        <div className="w-full bg-slate-700 h-1.5 rounded-full">
-                            <div className="bg-emerald-500 h-1.5 rounded-full w-[75%]"></div>
-                        </div>
-                     </div>
-                     <div className="grid grid-cols-2 gap-3">
-                         <div className="bg-slate-900 p-2 rounded border border-slate-700">
-                             <span className="block text-[10px] text-slate-500 uppercase">Daily PnL</span>
-                             <span className="text-green-400 font-mono text-sm">+2.4%</span>
-                         </div>
-                         <div className="bg-slate-900 p-2 rounded border border-slate-700">
-                             <span className="block text-[10px] text-slate-500 uppercase">Risk Level</span>
-                             <span className="text-yellow-400 font-mono text-sm">Low</span>
-                         </div>
-                     </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Middle Column: Chart & Analysis (6 cols) */}
-              <div className="lg:col-span-6 space-y-6">
-                
-                {/* Chart Section */}
-                <div className="bg-slate-800 border border-slate-700 rounded-lg p-1 relative shadow-xl">
-                  <div className="absolute top-4 left-4 z-10 flex flex-col">
-                    <span className="text-2xl font-bold text-white tracking-tight">${currentPrice.toFixed(2)}</span>
-                    <span className={`text-sm font-mono flex items-center ${marketData.length > 1 && marketData[marketData.length-1].close > marketData[marketData.length-2].close ? 'text-green-400' : 'text-red-400'}`}>
-                       {marketData.length > 1 ? (marketData[marketData.length-1].close - marketData[marketData.length-2].close).toFixed(2) : '0.00'} 
-                       <span className="ml-1 opacity-70">
-                        ({marketData.length > 1 ? ((marketData[marketData.length-1].close - marketData[marketData.length-2].close) / marketData[marketData.length-2].close * 100).toFixed(2) : '0.00'}%)
-                       </span>
-                    </span>
-                  </div>
-                  <MarketChart data={marketData} color={marketData.length > 1 && marketData[marketData.length-1].close >= marketData[0].close ? "#10b981" : "#ef4444"} />
-                </div>
-
-                {/* AI Analyst Output */}
-                <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
-                  <div className="flex justify-between items-center mb-6">
-                    <div className="flex items-center space-x-3">
-                      <div className="bg-indigo-500/10 p-2 rounded-lg">
-                        <BrainCircuit size={20} className="text-indigo-400" />
-                      </div>
-                      <div>
-                         <h2 className="text-lg font-bold text-white leading-none">QuantAI Analyst</h2>
-                         <p className="text-xs text-slate-500 mt-1">Real-time Regime & Sentiment Detection</p>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={handleAnalyze}
-                      disabled={isAnalyzing}
-                      className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isAnalyzing ? <RefreshCw className="animate-spin" size={16} /> : <Zap size={16} />}
-                      <span>Scan Market</span>
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Signal Card */}
-                    <div className="bg-slate-900 rounded-xl p-5 border border-slate-700 relative overflow-hidden">
-                       {signal ? (
-                           <>
-                             <div className="flex justify-between items-start mb-4">
-                                <div>
-                                    <span className="text-xs text-slate-400 uppercase font-bold tracking-wider">Action</span>
-                                    <div className={`text-2xl font-bold mt-1 ${signal.type === 'BUY' ? 'text-green-400' : signal.type === 'SELL' ? 'text-red-400' : signal.type === 'SAFE_MODE' ? 'text-blue-400' : 'text-yellow-400'}`}>
-                                        {signal.type.replace('_', ' ')}
-                                    </div>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-xs text-slate-400 uppercase font-bold tracking-wider">Confidence</span>
-                                    <div className="text-xl font-mono text-white mt-1">{signal.confidence}%</div>
-                                </div>
-                             </div>
-                             <p className="text-sm text-slate-300 leading-relaxed border-t border-slate-800 pt-3">
-                                {signal.reasoning}
-                             </p>
-                           </>
-                       ) : (
-                           <div className="h-full flex flex-col items-center justify-center text-slate-600">
-                               <Activity size={32} className="mb-2 opacity-50"/>
-                               <span className="text-sm font-medium">Waiting for analysis...</span>
-                           </div>
-                       )}
-                    </div>
-
-                    {/* Regime/Sentiment Card */}
-                    <div className="bg-slate-900 rounded-xl p-5 border border-slate-700">
-                        {signal ? (
-                            <div className="space-y-4">
-                                <div>
-                                    <div className="flex justify-between text-xs text-slate-400 uppercase font-bold tracking-wider mb-2">
-                                        <span>Market Regime</span>
-                                        <span className={`px-2 py-0.5 rounded ${signal.marketRegime === 'BULL' ? 'bg-green-500/20 text-green-400' : signal.marketRegime === 'BEAR' ? 'bg-red-500/20 text-red-400' : 'bg-slate-700 text-slate-300'}`}>
-                                            {signal.marketRegime}
-                                        </span>
-                                    </div>
-                                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                                        <div className={`h-full ${signal.marketRegime === 'BULL' ? 'bg-green-500' : signal.marketRegime === 'BEAR' ? 'bg-red-500' : 'bg-yellow-500'}`} style={{ width: '80%' }}></div>
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="flex justify-between text-xs text-slate-400 uppercase font-bold tracking-wider mb-2">
-                                        <span>Sentiment</span>
-                                        <span className={`${signal.sentiment === 'POSITIVE' ? 'text-green-400' : signal.sentiment === 'NEGATIVE' ? 'text-red-400' : 'text-slate-400'}`}>
-                                            {signal.sentiment}
-                                        </span>
-                                    </div>
-                                    <div className="flex space-x-1">
-                                        <div className={`h-1 flex-1 rounded-full ${signal.sentiment === 'NEGATIVE' ? 'bg-red-500' : 'bg-slate-800'}`}></div>
-                                        <div className={`h-1 flex-1 rounded-full ${signal.sentiment === 'NEUTRAL' ? 'bg-yellow-500' : 'bg-slate-800'}`}></div>
-                                        <div className={`h-1 flex-1 rounded-full ${signal.sentiment === 'POSITIVE' ? 'bg-green-500' : 'bg-slate-800'}`}></div>
-                                    </div>
-                                </div>
-                                <div className="text-xs text-slate-500 text-right pt-2">
-                                    Last Update: {signal.timestamp}
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="h-full flex items-center justify-center text-slate-600 text-sm">
-                                No data available
-                            </div>
-                        )}
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Right Column: Actions (3 cols) */}
-              <div className="lg:col-span-3 space-y-6">
-                  <div className="bg-indigo-900/30 border border-indigo-500/30 rounded-lg p-6">
-                      <h3 className="text-indigo-300 font-bold mb-2 flex items-center gap-2">
-                          <ShieldCheck size={18} /> Safe Mode Active
-                      </h3>
-                      <p className="text-xs text-indigo-200/70 mb-4">
-                          System is monitoring for high volatility events. Auto-switch to stablecoins enabled.
-                      </p>
-                      <button className="w-full bg-indigo-600/50 hover:bg-indigo-600 border border-indigo-500 text-white text-xs font-bold py-2 rounded transition-colors">
-                          Configure Safety Rules
-                      </button>
-                  </div>
-
-                  <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
-                      <h3 className="text-slate-300 font-bold mb-4 flex items-center gap-2">
-                          <Server size={18} /> Live Connections
-                      </h3>
-                      <div className="space-y-3">
-                          <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-500">Binance API</span>
-                              <span className="flex items-center text-green-400 text-xs font-mono"><span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>Connected</span>
-                          </div>
-                          <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-500">ML Model</span>
-                              <span className="flex items-center text-green-400 text-xs font-mono"><span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>Ready</span>
-                          </div>
-                          <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-500">Risk Manager</span>
-                              <span className="flex items-center text-green-400 text-xs font-mono"><span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>Active</span>
-                          </div>
-                      </div>
-                  </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: ARCHITECTURE & CODE */}
-          {activeTab === 'architecture' && (
-            <div className="space-y-8 animate-in fade-in duration-500">
-                {/* System Overview */}
-                <div className="bg-slate-800 border border-slate-700 rounded-lg p-8">
-                    <div className="max-w-3xl mx-auto text-center mb-10">
-                        <h2 className="text-2xl font-bold text-white mb-2">Enterprise Trading Architecture</h2>
-                        <p className="text-slate-400">Generated system design based on {config.riskProfile.split(' ')[0]} profile and {config.strategy} strategy.</p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 relative">
-                        {/* Connecting Line */}
-                        <div className="hidden md:block absolute top-1/2 left-0 w-full h-0.5 bg-slate-700 -z-0"></div>
-
-                        {/* Modules */}
-                        <div className="relative z-10 bg-slate-900 p-6 rounded-xl border border-slate-600 flex flex-col items-center text-center shadow-lg">
-                            <div className="bg-slate-800 p-3 rounded-full mb-3 text-indigo-400"><Activity /></div>
-                            <h3 className="font-bold text-white text-sm">Data Feed</h3>
-                            <p className="text-xs text-slate-500 mt-1">WebSocket / REST</p>
-                        </div>
-
-                        <div className="relative z-10 bg-slate-900 p-6 rounded-xl border border-slate-600 flex flex-col items-center text-center shadow-lg">
-                             <div className="bg-slate-800 p-3 rounded-full mb-3 text-purple-400"><BrainCircuit /></div>
-                            <h3 className="font-bold text-white text-sm">AI Engine</h3>
-                            <p className="text-xs text-slate-500 mt-1">{config.aiModel}</p>
-                        </div>
-
-                         <div className="relative z-10 bg-indigo-900 p-6 rounded-xl border border-indigo-500 flex flex-col items-center text-center shadow-lg transform scale-110">
-                             <div className="bg-indigo-800 p-3 rounded-full mb-3 text-white"><Bot /></div>
-                            <h3 className="font-bold text-white text-sm">Core Strategy</h3>
-                            <p className="text-xs text-indigo-300 mt-1">Logic Controller</p>
-                        </div>
-
-                        <div className="relative z-10 bg-slate-900 p-6 rounded-xl border border-slate-600 flex flex-col items-center text-center shadow-lg">
-                             <div className="bg-slate-800 p-3 rounded-full mb-3 text-red-400"><ShieldCheck /></div>
-                            <h3 className="font-bold text-white text-sm">Risk Manager</h3>
-                            <p className="text-xs text-slate-500 mt-1">Max Loss {config.stopLoss}%</p>
-                        </div>
-
-                        <div className="relative z-10 bg-slate-900 p-6 rounded-xl border border-slate-600 flex flex-col items-center text-center shadow-lg">
-                             <div className="bg-slate-800 p-3 rounded-full mb-3 text-green-400"><Server /></div>
-                            <h3 className="font-bold text-white text-sm">Execution</h3>
-                            <p className="text-xs text-slate-500 mt-1">Broker API</p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Generator Controls */}
-                <div className="flex flex-col items-center justify-center space-y-4">
-                    <button 
-                        onClick={handleGenerateCode}
-                        disabled={isGeneratingCode}
-                        className="flex items-center space-x-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white px-8 py-4 rounded-xl font-bold shadow-xl transition-all transform hover:-translate-y-1 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isGeneratingCode ? <RefreshCw className="animate-spin" /> : <Code />}
-                        <span>Generate Full System Code</span>
-                    </button>
-                    <p className="text-xs text-slate-500">Generates Python modules for Data, AI, Strategy, and Execution layers.</p>
-                </div>
-
-                {/* Code Viewers */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[800px]">
-                    <CodeViewer 
-                        title="system_main.py (Master Controller)" 
-                        code={generatedBotCode} 
-                        isLoading={isGeneratingCode} 
-                    />
-                    <CodeViewer 
-                        title="backtest_engine.py" 
-                        code={generatedBacktestCode} 
-                        isLoading={isGeneratingCode} 
-                    />
-                </div>
-            </div>
-          )}
-        </div>
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
+         {activeTab === 'explore' && (selectedAsset ? renderAssetDetail() : renderExplore())}
+         {activeTab === 'investments' && renderInvestments()}
+         {activeTab === 'algo' && renderAlgoStudio()}
       </main>
+      
+      {/* Floating AI Assistant (Always visible) */}
+      <AIAssistant currentPrice={currentPrice} config={config} lastSignal={signal} />
     </div>
   );
 }

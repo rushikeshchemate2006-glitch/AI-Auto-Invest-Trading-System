@@ -2,18 +2,30 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>QuantAI: Algo-Trading Architect</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="description" content="InvestAI: Next-Gen Automated Trading Platform" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    
+    <title>InvestAI: Algo-Trading Architect</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body {
         background-color: #0f172a; /* Slate 900 */
         color: #e2e8f0; /* Slate 200 */
+        -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+        overscroll-behavior-y: none; /* Prevent pull-to-refresh on mobile */
       }
       /* Custom scrollbar for code blocks */
       ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 4px; /* Thinner for mobile */
+        height: 4px;
       }
       ::-webkit-scrollbar-track {
         background: #1e293b;
@@ -24,6 +36,11 @@
       }
       ::-webkit-scrollbar-thumb:hover {
         background: #64748b;
+      }
+      /* Mobile safe area padding */
+      #root {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
       }
     </style>
   <script type="importmap">
